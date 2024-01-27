@@ -27,30 +27,15 @@ const createRole = async (req, res) => {
 
 const getAllRoles = async (req, res) => {
   try {
-    // Extract page and limit from the query parameters
-    const { page = 1, limit = 10 } = req.query;
-
-    // Convert page and limit to integers
-    const pageNumber = parseInt(page);
-    const limitNumber = parseInt(limit);
-
-    // Validate if the parameters are valid positive integers
-    if (
-      isNaN(pageNumber) ||
-      isNaN(limitNumber) ||
-      pageNumber < 1 ||
-      limitNumber < 1
-    ) {
-      return res
-        .status(400)
-        .json({ status: false, error: "Invalid page or limit parameters" });
-    }
+    const pageNumber = 1;
+    const limitNumber = 10;
 
     // Perform pagination using Mongoose skip and limit
     const roles = await Role.find()
       .skip((pageNumber - 1) * limitNumber)
       .limit(limitNumber)
       .exec();
+
 
     // Get total count of roles
     const totalRoles = await Role.countDocuments().exec();
@@ -70,7 +55,12 @@ const getAllRoles = async (req, res) => {
           pages: totalPages,
           page: currentPage,
         },
-        data: roles,
+        data: roles.map((role) => ({
+            id: role.id,
+            name: role.name,
+            created_at: role.created_at,
+            updated_at: role.updated_at,
+        })),
       },
     };
 
@@ -415,7 +405,6 @@ const getAllCommunityMadeByUser = async (req, res) => {
     return res.status(404).json({ status: false, error: error.message });
   }
 };
-
 
 const getAllCommunityUserIsMember = async (req, res) => {
   try {

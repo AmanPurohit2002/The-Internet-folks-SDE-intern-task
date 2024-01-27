@@ -21,8 +21,16 @@ const roleSchema=new Schema({
             },
             message:'Invalid username. Follow the specified criteria.',
         }
+    },
+    created_at:{
+        type:Date,
+        default:Date.now,
+    },
+    updated_at:{
+        type:Date,
+        default:Date.now,
     }
-},{timestamps:true})
+})
 
 const Role=models.Role || model("Role",roleSchema);
 
