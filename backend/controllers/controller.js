@@ -237,24 +237,8 @@ const createCommunity = async (req, res) => {
 
 const getAllCommunity = async (req, res) => {
   try {
-    // Extract page and limit from the query parameters
-    const { page = 1, limit = 10 } = req.query;
-
-    // Convert page and limit to integers
-    const pageNumber = parseInt(page);
-    const limitNumber = parseInt(limit);
-
-    // Validate if the parameters are valid positive integers
-    if (
-      isNaN(pageNumber) ||
-      isNaN(limitNumber) ||
-      pageNumber < 1 ||
-      limitNumber < 1
-    ) {
-      return res
-        .status(400)
-        .json({ status: false, error: "Invalid page or limit parameters" });
-    }
+    const pageNumber = 1;
+    const limitNumber = 10;
 
     // Perform pagination using Mongoose skip and limit
     const communities = await Community.find()
@@ -271,43 +255,27 @@ const getAllCommunity = async (req, res) => {
     // Calculate the current page number
     const currentPage = communities.length > 0 ? pageNumber : 0;
 
-    const expandedCommunities = await Community.aggregate([
-      {
-        $sort: { created_at: 1 }, // Sort by created_at in ascending order
-      },
-      {
-        $skip: (pageNumber - 1) * limitNumber,
-      },
-      {
-        $limit: limitNumber,
-      },
-      {
-        $lookup: {
-          from: "users",
-          localField: "owner",
-          foreignField: "id",
-          as: "ownerDetails",
-        },
-      },
-      {
-        $unwind: "$ownerDetails",
-      },
-      {
-        $project: {
-          id: 1,
-          name: 1,
-          slug: 1,
-          owner: {
-            id: "$ownerDetails.id",
-            name: "$ownerDetails.name",
-          },
-          created_at: 1,
-          updated_at: 1,
-        },
-      },
-    ]);
+    const expandedCommunities = await Promise.all(
+      communities.map(async (community) => {
+        const owner = await User.findOne(
+          { id: community.owner },
+          { id: 1, name: 1 }
+        );
 
-    // Prepare the response JSON
+        return {
+          id: community.id,
+          name: community.name,
+          slug: community.slug,
+          owner: {
+            id: owner.id,
+            name: owner.name,
+          },
+          created_at: community.created_at,
+          updated_at: community.updated_at,
+        };
+      })
+    );
+
     const responseData = {
       status: true,
       content: {
@@ -322,7 +290,202 @@ const getAllCommunity = async (req, res) => {
 
     return res.status(200).json(responseData);
   } catch (error) {
+    return res.status(500).json({ status: false, error: error.message });
+  }
+};
+
+const getAllMembers = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const pageNumber = 1;
+    const limitNumber = 10;
+
+    // Perform pagination using Mongoose skip and limit
+    const members = await Member.find({ community: id })
+      .skip((pageNumber - 1) * limitNumber)
+      .limit(limitNumber)
+      .exec();
+
+    // Get total count of members in the community
+    const totalMembers = await Member.countDocuments({ community: id }).exec();
+
+    // Calculate total pages
+    const totalPages = Math.ceil(totalMembers / limitNumber);
+
+    // Calculate the current page number
+    const currentPage = members.length > 0 ? pageNumber : 0;
+
+    // Prepare the response JSON with expanded user and role details
+    const expandedMembers = await Promise.all(
+      members.map(async (member) => {
+        const user = await User.findOne(
+          { id: member.user },
+          { id: 1, name: 1 }
+        );
+        const role = await Role.findOne(
+          { id: member.role },
+          { id: 1, name: 1 }
+        );
+
+        return {
+          id: member.id,
+          community: member.community,
+          user: {
+            id: user.id,
+            name: user.name,
+          },
+          role: {
+            id: role.id,
+            name: role.name,
+          },
+          created_at: member.created_at,
+        };
+      })
+    );
+
+    // Prepare the response JSON
+    const responseData = {
+      status: true,
+      content: {
+        meta: {
+          total: totalMembers,
+          pages: totalPages,
+          page: currentPage,
+        },
+        data: expandedMembers,
+      },
+    };
+
+    return res.status(200).json(responseData);
+  } catch (error) {
+    return res.status(500).json({ status: false, error: error.message });
+  }
+};
+
+const getAllCommunityMadeByUser = async (req, res) => {
+  try {
+    const owner = req.userId;
+
+    const pageNumber = 1;
+    const limitNumber = 10;
+
+    // Perform pagination using Mongoose skip and limit
+    const ownedCommunities = await Community.find({ owner })
+      .skip((pageNumber - 1) * limitNumber)
+      .limit(limitNumber)
+      .exec();
+
+    // Get total count of owned communities
+    const totalOwnedCommunities = await Community.countDocuments({
+      owner,
+    }).exec();
+
+    if (totalOwnedCommunities === 0)
+      return res.status(400).json({ error: "Owner has not made a community" });
+
+    // Calculate total pages
+    const totalPages = Math.ceil(totalOwnedCommunities / limitNumber);
+
+    // Calculate the current page number
+    const currentPage = ownedCommunities.length > 0 ? pageNumber : 0;
+
+    // Prepare the response JSON
+    const responseData = {
+      status: true,
+      content: {
+        meta: {
+          total: totalOwnedCommunities,
+          pages: totalPages,
+          page: currentPage,
+        },
+        data: ownedCommunities.map((community) => ({
+          id: community.id,
+          name: community.name,
+          slug: community.slug,
+          owner: community.owner,
+          created_at: community.created_at,
+          updated_at: community.updated_at,
+        })),
+      },
+    };
+
+    return res.status(200).json(responseData);
+  } catch (error) {
     return res.status(404).json({ status: false, error: error.message });
+  }
+};
+
+
+const getAllCommunityUserIsMember = async (req, res) => {
+  try {
+    const owner = req.userId;
+    const pageNumber = 1;
+    const limitNumber = 10;
+
+    // Get the members with pagination
+    const members = await Member.find({ user: owner })
+      .skip((pageNumber - 1) * limitNumber)
+      .limit(limitNumber)
+      .exec();
+
+    const totalJoinedCommunities = await Member.countDocuments({
+      user: owner,
+    }).exec();
+
+    const totalPages = Math.ceil(totalJoinedCommunities / limitNumber);
+    const currentPage = members.length > 0 ? pageNumber : 0;
+
+    // Fetch details for each member
+    const communitySet = new Set(); // Use a Set to filter duplicates
+
+    await Promise.all(
+      members.map(async (member) => {
+        const community = await Community.findOne({
+          id: member.community,
+          owner: member.user,
+        })
+          .lean()
+          .exec();
+
+        if (community) {
+          const owner = await User.findOne(
+            { id: community.owner },
+            { id: 1, name: 1 }
+          )
+            .lean()
+            .exec();
+
+          communitySet.add({
+            id: community.id,
+            name: community.name,
+            slug: community.slug,
+            owner: {
+              id: owner.id.toString(),
+              name: owner.name,
+            },
+            created_at: community.created_at,
+            updated_at: community.updated_at,
+          });
+        }
+      })
+    );
+
+    const responseData = {
+      status: true,
+      content: {
+        meta: {
+          total: communitySet.size, // Use Set size to get unique communities
+          pages: totalPages,
+          page: currentPage,
+        },
+        data: Array.from(communitySet), // Convert Set to Array
+      },
+    };
+
+    return res.status(200).json(responseData);
+  } catch (error) {
+    return res.status(404).json({ error: error.message });
   }
 };
 
@@ -333,13 +496,12 @@ const addMember = async (req, res) => {
 
     const adminRole = await Role.findOne({ name: "Community Admin" });
 
-    // check requested user role is admin or not 
+    // check requested user role is admin or not
     const requesterRole = await Member.findOne({
       community,
       user: requester,
       role: adminRole.id,
     });
-
 
     if (!requesterRole) {
       return res.status(403).json({
@@ -348,76 +510,72 @@ const addMember = async (req, res) => {
       });
     }
 
-    const member=await Member.create({
-        community,
-        user,
-        role
+    const member = await Member.create({
+      community,
+      user,
+      role,
     });
 
     const responseData = {
-        status: true,
-        content: {
-          data: {
-            id: member.id,
-            community: member.community,
-            user: member.user,
-            role: member.role,
-            created_at: member.created_at,
-          },
+      status: true,
+      content: {
+        data: {
+          id: member.id,
+          community: member.community,
+          user: member.user,
+          role: member.role,
+          created_at: member.created_at,
         },
-      };
+      },
+    };
 
-      return res.status(201).json(responseData);
-
-
+    return res.status(201).json(responseData);
   } catch (error) {
     return res.status(404).json({ status: false, error: error.message });
   }
 };
 
-const deleteMember=async(req,res)=>{
-    try {
-        const {id}=req.params;
-        const requester=req.userId;
+const deleteMember = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const requester = req.userId;
 
-        const isMemberExists=await Member.findOne({id});
+    const isMemberExists = await Member.findOne({ id });
 
-        if(!isMemberExists){
-            return res.status(404).json({
-                status: false,
-                error: "Member not found",
-            });
-        }
-
-        const adminRole=await Role.findOne({name:"Community Admin"});
-        const moderatorRole=await Role.findOne({name:"Community Moderator"});
-
-        const requesterRole=await Member.findOne({
-            community:isMemberExists.community,
-            user:requester,
-            role:{ $in :[adminRole.id,moderatorRole.id]}
-        })
-
-        if (!requesterRole) {
-            return res.status(403).json({
-              status: false,
-              error: "NOT_ALLOWED_ACCESS",
-            });
-        }
-
-        await Member.deleteOne({id:id})
-
-        const responseData = {
-            status: true,
-        };
-
-        return res.status(201).json(responseData);
-
-
-    } catch (error) {
-        return res.status(404).json({status:false,error:error.message});
+    if (!isMemberExists) {
+      return res.status(404).json({
+        status: false,
+        error: "Member not found",
+      });
     }
-}
+
+    const adminRole = await Role.findOne({ name: "Community Admin" });
+    const moderatorRole = await Role.findOne({ name: "Community Moderator" });
+
+    const requesterRole = await Member.findOne({
+      community: isMemberExists.community,
+      user: requester,
+      role: { $in: [adminRole.id, moderatorRole.id] },
+    });
+
+    if (!requesterRole) {
+      return res.status(403).json({
+        status: false,
+        error: "NOT_ALLOWED_ACCESS",
+      });
+    }
+
+    await Member.deleteOne({ id: id });
+
+    const responseData = {
+      status: true,
+    };
+
+    return res.status(201).json(responseData);
+  } catch (error) {
+    return res.status(404).json({ status: false, error: error.message });
+  }
+};
 
 module.exports = {
   createRole,
@@ -428,5 +586,8 @@ module.exports = {
   createCommunity,
   getAllCommunity,
   addMember,
-  deleteMember
+  deleteMember,
+  getAllMembers,
+  getAllCommunityMadeByUser,
+  getAllCommunityUserIsMember,
 };
