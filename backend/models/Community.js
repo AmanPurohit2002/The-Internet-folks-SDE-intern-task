@@ -33,8 +33,8 @@ const communitySchema = new Schema({
 
 // Autogenerate the slug from the name before saving
 communitySchema.pre('save', function (next) {
-    // Ensure that slug is generated or updated on every save
-    this.slug = this.name.toLowerCase();
+    
+    this.slug = this.name.replace(/\s/g, '-').toLowerCase();
     next();
 });
 
